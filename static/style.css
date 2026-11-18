@@ -1,0 +1,44 @@
+/* ==========================================================================
+   EcoRelocate — Core Styles (Industrial / Expat Utility Aesthetic)
+   ========================================================================== */
+
+html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: antialiased;
+}
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: #f1f5f9; /* slate-100 для глубокого контраста */
+    color: #0f172a; /* slate-900 */
+}
+
+::selection {
+    background-color: #059669; /* emerald-600 */
+    color: #ffffff;
+}
+
+#map {
+    border: 1px solid #cbd5e1; /* slate-300 */
+    background-color: #f8fafc;
+}
+
+/* Плотный и аккуратный скроллбар */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #e2e8f0;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}

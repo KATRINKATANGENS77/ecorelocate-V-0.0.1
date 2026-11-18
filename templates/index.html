@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}EcoRelocate — Навигатор по сортировке и утилизации{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
+
+    <!-- HERO SECTION: Плотный индустриальный блок с темной подложкой -->
+    <section class="bg-slate-900 text-white rounded-xl p-8 sm:p-12 shadow-md relative overflow-hidden border border-slate-800">
+        <div class="absolute right-0 top-0 w-96 h-96 bg-emerald-700/10 rounded-full blur-3xl pointer-events-none"></div>
+        
+        <div class="relative z-10 max-w-3xl space-y-6">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded text-xs font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-500/30">
+                <i class="fa-solid fa-terminal text-emerald-400"></i> Справочник релоканта v1.0
+            </div>
+            
+            <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight leading-tight text-white">
+                Сортировка мусора <br>без права на ошибку.
+            </h1>
+            
+            <p class="text-slate-300 text-base sm:text-lg leading-relaxed">
+                Локальные правила утилизации в новой стране жестко регламентированы. Выберите город, введите предмет и получите точный алгоритм действий.
+            </p>
+
+            <!-- Поисковая форма -->
+            <div class="pt-2">
+                <form id="searchForm" class="relative max-w-2xl flex items-center shadow-lg">
+                    <div class="absolute left-4 text-slate-400 text-base pointer-events-none">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </div>
+                    <input 
+                        type="text" 
+                        id="heroSearch" 
+                        placeholder="Что нужно выбросить? (например: стеклотара, батарейки)..." 
+                        class="w-full pl-11 pr-32 py-4 rounded-lg bg-slate-800 text-white placeholder-slate-400 text-sm border border-slate-700 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                        autocomplete="off"
+                    />
+                    <button 
+                        type="submit" 
+                        class="absolute right-1.5 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md transition-colors text-sm shadow cursor-pointer"
+                    >
+                        Найти
+                    </button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- КАТАЛОГ И ПОИСК ОТХОДОВ -->
+    <section id="wasteEngine" class="space-y-6">
+        <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-300 pb-4">
+            <div>
+                <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Каталог отходов и правил</h2>
+                <p class="text-sm text-slate-600 mt-1">Выберите категорию или используйте глобальный поиск для сверки с муниципальным кодексом.</p>
+            </div>
+            
+            <!-- Фильтры по категориям баков -->
+            <div class="flex flex-wrap gap-2" id="categoryFilters">
+                <button data-category="all" class="filter-btn active text-xs font-medium px-3 py-1.5 rounded-md border border-slate-300 bg-slate-900 text-white transition-colors">Все</button>
+                <button data-category="plastic" class="filter-btn text-xs font-medium px-3 py-1.5 rounded-md border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 transition-colors">Пластик / Металл</button>
+                <button data-category="paper" class="filter-btn text-xs font-medium px-3 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100 transition-colors">Бумага</button>
+                <button data-category="glass" class="filter-btn text-xs font-medium px-3 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 transition-colors">Стекло</button>
+                <button data-category="hazmat" class="filter-btn text-xs font-medium px-3 py-1.5 rounded-md border border-rose-300 bg-rose-50 text-rose-900 hover:bg-rose-100 transition-colors">Опасное / Электроника</button>
+            </div>
+        </div>
+
+        <!-- Контейнер сетки отходов -->
+        <div id="itemsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {% if items %}
+                {% for item in items %}
+                <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow space-y-3">
+                    <div class="flex items-start justify-between gap-2">
+                        <h3 class="font-bold text-slate-900 text-lg">{{ item.title }}</h3>
+                        <span class="text-xs font-bold px-2.5 py-1 rounded {{ item.badge_class }}">
+                            {{ item.bin_name }}
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-600 leading-relaxed">{{ item.description }}</p>
+                    
+                    {% if item.preparation %}
+                    <div class="pt-2 border-t border-slate-100 text-xs text-slate-500">
+                        <strong class="text-slate-700">Подготовка:</strong> {{ item.preparation }}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+                <!-- Скелетон или fallback для динамической подгрузки через JS -->
+                <div class="col-span-full py-8 text-center text-slate-400 text-sm">
+                    <i class="fa-solid fa-spinner fa-spin text-xl mb-2 block"></i>
+                    Загрузка каталога правил...
+                </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- ИНТЕРАКТИВНАЯ КАРТА (LEAFLET / MAPBOX) -->
+    <section class="bg-white rounded-xl p-6 sm:p-8 border border-slate-300 shadow-sm space-y-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-4">
+            <div>
+                <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
+                    <i class="fa-solid fa-map-location-dot text-emerald-700"></i>
+                    Пункты приема отходов: <span id="mapCityName" class="text-emerald-700 font-bold">{{ selected_city|default('Минск') }}</span>
+                </h2>
+                <p class="text-xs text-slate-600 mt-0.5">Координаты специализированных контейнеров и центров утилизации.</p>
+            </div>
+            
+            <!-- Переключатель города -->
+            <div class="flex items-center gap-2">
+                <label for="citySelect" class="text-xs text-slate-500 font-medium">Локация:</label>
+                <select id="citySelect" class="bg-slate-50 border border-slate-300 text-xs font-semibold rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                    <option value="minsk" selected>Минск (BY)</option>
+                    <option value="warsaw">Варшава (PL)</option>
+                    <option value="tbilisi">Тбилиси (GE)</option>
+                    <option value="berlin">Берлин (DE)</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- Контейнер для интерактивной карты Leaflet/Mapbox -->
+        <div id="map" class="w-full h-[440px] rounded-lg border border-slate-300 z-10 shadow-inner bg-slate-100"></div>
+    </section>
+
+    <!-- ПРАВИЛА И ОШИБКИ -->
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="p-6 bg-white border border-slate-200 rounded-xl shadow-sm space-y-3">
+            <div class="flex items-center gap-2 text-rose-600 font-bold">
+                <i class="fa-solid fa-circle-xmark"></i>
+                <span>Как НЕ надо выбрасывать</span>
+            </div>
+            <ul class="space-y-2 text-xs text-slate-600 leading-relaxed">
+                <li class="flex items-start gap-2">
+                    <span class="text-rose-500">•</span>
+                    <span>Чеки из термобумаги (содержат бисфенол-А) — выбрасывайте только в общий мусор.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <span class="text-rose-500">•</span>
+                    <span>Грязные коробки из-под пиццы с жирными пятнами портят всю партию макулатуры.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <span class="text-rose-500">•</span>
+                    <span>Батарейки и аккуммуляторы в общем баке приводят к возгоранию и загрязнению почвы.</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="p-6 bg-white border border-slate-200 rounded-xl shadow-sm space-y-3">
+            <div class="flex items-center gap-2 text-emerald-600 font-bold">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>Золотой стандарт сортировки</span>
+            </div>
+            <ul class="space-y-2 text-xs text-slate-600 leading-relaxed">
+                <li class="flex items-start gap-2">
+                    <span class="text-emerald-500">•</span>
+                    <span>Всегда сминайте пластиковые бутылки и картонные коробки — сокращайте объем на 70%.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <span class="text-emerald-500">•</span>
+                    <span>Ополаскивайте пищевую тару от остатков содержимого холодной водой.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <span class="text-emerald-500">•</span>
+                    <span>Снимайте крышки со стеклянных банок и сортируйте их отдельно (пластик/металл).</span>
+                </li>
+            </ul>
+        </div>
+    </section>
+
+</div>
+{% endblock %}
