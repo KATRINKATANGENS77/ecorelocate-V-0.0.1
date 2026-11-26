@@ -1,24 +1,428 @@
-import { CITY_DATA, ITEMS_DATABASE } from './data.js';
+(() => {
+  if (window.__ECORELOCATE_APP_MOUNTED__) return;
+  window.__ECORELOCATE_APP_MOUNTED__ = true;
 
-let currentCity = 'berlin';
+  const utils = window.EcoRelocateUtils;
+  const dropoffMap = window.EcoRelocateDropoffMap;
+  if (!utils) return;
 
-function renderCityBins() {
-    const city = CITY_DATA[currentCity];
-    const container = document.getElementById('binSchemeGrid');
-    
-    if (!city || !container) return;
+  let data = null;
 
-    document.getElementById('binSchemeCityName').textContent = city.name;
+  const state = {
+    view: "sorting",
+    originId: "by",
+    cityId: "minsk",
+    category: "all",
+    query: "",
+    onlyDelta: false,
+    expandedItemIds: new Set(),
+    loopMaterial: "paper",
+    selectedZoneId: "",
+    checkedChecklistIds: new Set(["fw-1"]),
+    loading: true,
+    error: ""
+  };
 
-    container.innerHTML = city.bins.map(bin => 
-        <div class="p-3.5 rounded-xl border flex flex-col justify-between ${bin.color}">
-            <span class="font-bold text-sm">${bin.name}</span>
-            <span class="text-xs opacity-90">${bin.type}</span>
+  const els = {
+    brandLogo: document.getElementById("brand-logo-slot"),
+    routeArrow: document.getElementById("route-arrow-slot"),
+    searchIcon: document.getElementById("search-icon-slot"),
+    originSelect: document.getElementById("origin-country"),
+    citySelect: document.getElementById("destination-city"),
+    routeSummary: document.getElementById("route-delta-summary"),
+    binsLegend: document.getElementById("city-bins-legend"),
+    categoryFilters: document.getElementById("category-filters"),
+    searchInput: document.getElementById("item-search"),
+    clearSearchBtn: document.getElementById("clear-search-btn"),
+    onlyDeltaToggle: document.getElementById("only-delta-toggle"),
+    resultsCount: document.getElementById("results-count"),
+    itemsList: document.getElementById("items-list"),
+    emptyState: document.getElementById("empty-state"),
+    resetFiltersBtn: document.getElementById("reset-filters-btn"),
+    materialLoopDiagram: document.getElementById("material-loop-diagram"),
+    checklistList: document.getElementById("first-week-list"),
+    checklistProgressText: document.getElementById("checklist-progress-text"),
+    checklistProgressBar: document.getElementById("checklist-progress-bar"),
+    symbolsGrid: document.getElementById("symbols-grid"),
+    dropoffMapContainer: document.getElementById("dropoff-map-container"),
+    navTabs: Array.from(document.querySelectorAll(".nav-tab")),
+    viewPanels: {
+      sorting: document.getElementById("view-sorting"),
+      "first-week": document.getElementById("view-first-week"),
+      "symbols-dropoff": document.getElementById("view-symbols-dropoff")
+    },
+    loopBtns: Array.from(document.querySelectorAll(".loop-btn"))
+  };
+
+  function getActiveCity() {
+    if (!data || !data.cities) return null;
+    return data.cities[state.cityId] || Object.values(data.cities)[0] || null;
+  }
+
+  function initStaticIcons() {
+    if (els.brandLogo) els.brandLogo.innerHTML = utils.svgIcon("brand", 22);
+    if (els.routeArrow) els.routeArrow.innerHTML = utils.svgIcon("arrow-right", 18);
+    if (els.searchIcon) els.searchIcon.innerHTML = utils.svgIcon("search", 18);
+  }
+
+  function renderLoadingOrError() {
+    if (state.loading) {
+      els.resultsCount.textContent = "Загружаем данные из /api/bootstrap...";
+      els.itemsList.innerHTML = `
+        <article class="item-card"><p class="item-action">Загрузка правил сортировки и городов...</p></article>
+        <article class="item-card"><p class="item-action">Подготовка подсказок по сдвигу привычек...</p></article>
+      `;
+      els.emptyState.hidden = true;
+      return true;
+    }
+
+    if (state.error || !data) {
+      els.resultsCount.textContent = "Не удалось загрузить данные";
+      els.itemsList.innerHTML = "";
+      els.emptyState.hidden = false;
+      const titleEl = els.emptyState.querySelector(".empty-title");
+      const copyEl = els.emptyState.querySelector(".empty-copy");
+      if (titleEl) titleEl.textContent = "Ошибка связи с API (/api/bootstrap)";
+      if (copyEl) copyEl.textContent = state.error || "Проверьте запуск сервера FastAPI.";
+      return true;
+    }
+
+    return false;
+  }
+
+  function populateSelects() {
+    if (!data) return;
+    const origins = data.origins || [];
+    const cities = data.cities || {};
+
+    els.originSelect.innerHTML = origins
+      .map((o) => `<option value="${utils.escapeHtml(o.id)}">${utils.escapeHtml(o.label)}</option>`)
+      .join("");
+
+    els.citySelect.innerHTML = Object.values(cities)
+      .map((c) => `<option value="${utils.escapeHtml(c.id)}">${utils.escapeHtml(c.name)}</option>`)
+      .join("");
+
+    if (!origins.some((o) => o.id === state.originId)) {
+      state.originId = origins[0]?.id || "by";
+    }
+    if (!cities[state.cityId]) {
+      state.cityId = Object.keys(cities)[0] || "minsk";
+    }
+
+    els.originSelect.value = state.originId;
+    els.citySelect.value = state.cityId;
+  }
+
+  function renderCategoryFilters() {
+    if (!data) return;
+    els.categoryFilters.innerHTML = (data.categories || [])
+      .map((cat) => {
+        const active = cat.id === state.category;
+        return `<button type="button" class="filter-pill ${active ? "is-active" : ""}" data-category="${utils.escapeHtml(cat.id)}" aria-pressed="${active}">${utils.escapeHtml(cat.label)}</button>`;
+      })
+      .join("");
+  }
+
+  function renderRouteAndBins() {
+    const city = getActiveCity();
+    if (!city) return;
+
+    els.routeSummary.innerHTML = `
+      <span class="route-badge">${utils.svgIcon("info", 15)} <strong>${utils.escapeHtml(city.name)}</strong></span>
+      <span class="route-note">${utils.escapeHtml(city.housingNote)}</span>
+    `;
+
+    els.binsLegend.innerHTML = (city.bins || [])
+      .map(
+        (b) => `
+        <div class="bin-chip">
+          <span class="bin-swatch bin-${utils.escapeHtml(b.code)}" aria-hidden="true"></span>
+          <div class="bin-chip-text">
+            <span class="bin-name">${utils.escapeHtml(b.name)}</span>
+            <span class="bin-hint">${utils.escapeHtml(b.hint)}</span>
+          </div>
         </div>
-    ).join('');
-}
+      `
+      )
+      .join("");
+  }
 
-// Инициализация
-document.addEventListener('DOMContentLoaded', () => {
-    renderCityBins();
-});
+  function renderItems() {
+    if (renderLoadingOrError()) return;
+
+    const city = getActiveCity();
+    const filtered = utils.filterItems(data.items || [], {
+      query: state.query,
+      category: state.category,
+      originId: state.originId,
+      city,
+      onlyDelta: state.onlyDelta
+    });
+
+    els.clearSearchBtn.hidden = state.query.length === 0;
+    els.resultsCount.textContent =
+      filtered.length === 0
+        ? "Подходящих предметов не найдено"
+        : `Найдено предметов: ${filtered.length} · Город: ${city ? city.name : ""}`;
+
+    if (filtered.length === 0) {
+      els.itemsList.innerHTML = "";
+      els.emptyState.hidden = false;
+      return;
+    }
+
+    els.emptyState.hidden = true;
+    els.itemsList.innerHTML = filtered
+      .map((item) => {
+        const isExpanded = state.expandedItemIds.has(item.id);
+        const deltaText = utils.getRuleDeltaText(item, state.originId, city);
+        const prepHtml = (item.prepSteps || [])
+          .map((step) => `<li>${utils.escapeHtml(step)}</li>`)
+          .join("");
+
+        return `
+          <article class="item-card" data-item-id="${utils.escapeHtml(item.id)}">
+            <div class="item-top">
+              <span class="bin-pill bin-pill-${utils.escapeHtml(item.binCode)}">${utils.escapeHtml(item.binLabel)}</span>
+              ${deltaText ? `<span class="delta-pill">${utils.svgIcon("delta", 13)} Сдвиг привычки</span>` : ""}
+            </div>
+            <h3 class="item-title">${utils.escapeHtml(item.title)}</h3>
+            <p class="item-action">${utils.escapeHtml(item.action)}</p>
+            ${
+              deltaText
+                ? `<div class="delta-box"><strong>Что иначе в вашей привычке:</strong> ${utils.escapeHtml(deltaText)}</div>`
+                : ""
+            }
+            <button
+              type="button"
+              class="details-toggle"
+              data-toggle-item="${utils.escapeHtml(item.id)}"
+              aria-expanded="${isExpanded}"
+            >
+              <span>${isExpanded ? "Скрыть подготовку и путь материала" : "Как подготовить и во что переработается"}</span>
+              ${utils.svgIcon("chevron-down", 16)}
+            </button>
+            <div class="item-details" ${isExpanded ? "" : "hidden"}>
+              <div class="detail-block">
+                <h4 class="detail-heading">Подготовка перед выносом</h4>
+                <ul class="prep-list">${prepHtml}</ul>
+              </div>
+              <div class="detail-block">
+                <h4 class="detail-heading">Путь материала</h4>
+                <p class="outcome-copy">${utils.escapeHtml(item.outcome)}</p>
+              </div>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+  }
+
+  function renderMaterialLoop() {
+    if (!data || !data.materialLoops) return;
+    const steps = data.materialLoops[state.loopMaterial] || [];
+    els.materialLoopDiagram.innerHTML = steps
+      .map(
+        (s, idx) => `
+        <div class="loop-step">
+          <div class="loop-step-header">
+            <span class="loop-index">0${idx + 1}</span>
+            <span class="loop-stage">${utils.escapeHtml(s.step)}</span>
+          </div>
+          <p class="loop-text">${utils.escapeHtml(s.text)}</p>
+        </div>
+      `
+      )
+      .join("");
+  }
+
+  function renderChecklist() {
+    if (!data) return;
+    const list = data.firstWeekChecklist || [];
+    const ids = list.map((c) => c.id);
+    const progress = utils.calculateChecklistProgress(ids, state.checkedChecklistIds);
+    els.checklistProgressText.textContent = `${progress.done} из ${progress.total} выполнено (${progress.percent}%)`;
+    els.checklistProgressBar.style.width = `${progress.percent}%`;
+
+    els.checklistList.innerHTML = list
+      .map((entry) => {
+        const checked = state.checkedChecklistIds.has(entry.id);
+        return `
+          <li class="checklist-row ${checked ? "is-done" : ""}">
+            <label class="checklist-label">
+              <input
+                type="checkbox"
+                class="checklist-checkbox"
+                data-checklist-id="${utils.escapeHtml(entry.id)}"
+                ${checked ? "checked" : ""}
+              />
+              <span class="checklist-content">
+                <span class="checklist-title">${utils.escapeHtml(entry.title)}</span>
+                <span class="checklist-detail">${utils.escapeHtml(entry.detail)}</span>
+              </span>
+            </label>
+          </li>
+        `;
+      })
+      .join("");
+  }
+
+  function renderSymbolsAndDropoff() {
+    if (!data) return;
+    const city = getActiveCity();
+    els.symbolsGrid.innerHTML = (data.symbols || [])
+      .map(
+        (sym) => `
+        <article class="info-card">
+          <span class="symbol-code">${utils.escapeHtml(sym.code)}</span>
+          <h3 class="info-card-title">${utils.escapeHtml(sym.name)}</h3>
+          <p class="info-card-copy">${utils.escapeHtml(sym.meaning)}</p>
+        </article>
+      `
+      )
+      .join("");
+
+    if (dropoffMap && els.dropoffMapContainer) {
+      const cityZones = utils.getCityZones(data.dropoffZones || [], city);
+      if (!cityZones.some((z) => z.id === state.selectedZoneId)) {
+        state.selectedZoneId = cityZones[0]?.id || "";
+      }
+      dropoffMap.render(els.dropoffMapContainer, cityZones, state.selectedZoneId, city?.name, (zoneId) => {
+        state.selectedZoneId = zoneId;
+        renderSymbolsAndDropoff();
+      });
+    }
+  }
+
+  function switchView(nextView) {
+    state.view = nextView;
+    els.navTabs.forEach((tab) => {
+      const active = tab.dataset.view === nextView;
+      tab.classList.toggle("is-active", active);
+      if (active) tab.setAttribute("aria-current", "page");
+      else tab.removeAttribute("aria-current");
+    });
+    Object.entries(els.viewPanels).forEach(([key, panel]) => {
+      if (panel) panel.hidden = key !== nextView;
+    });
+  }
+
+  function bindEvents() {
+    els.originSelect.addEventListener("change", (e) => {
+      state.originId = e.target.value;
+      renderRouteAndBins();
+      renderItems();
+    });
+
+    els.citySelect.addEventListener("change", (e) => {
+      state.cityId = e.target.value;
+      renderRouteAndBins();
+      renderItems();
+      renderSymbolsAndDropoff();
+    });
+
+    els.searchInput.addEventListener("input", (e) => {
+      state.query = e.target.value;
+      renderItems();
+    });
+
+    els.clearSearchBtn.addEventListener("click", () => {
+      state.query = "";
+      els.searchInput.value = "";
+      els.searchInput.focus();
+      renderItems();
+    });
+
+    els.onlyDeltaToggle.addEventListener("change", (e) => {
+      state.onlyDelta = e.target.checked;
+      renderItems();
+    });
+
+    els.categoryFilters.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-category]");
+      if (!btn) return;
+      state.category = btn.dataset.category;
+      renderCategoryFilters();
+      renderItems();
+    });
+
+    els.resetFiltersBtn.addEventListener("click", () => {
+      if (!data) {
+        loadBootstrap();
+        return;
+      }
+      state.category = "all";
+      state.query = "";
+      state.onlyDelta = false;
+      els.searchInput.value = "";
+      els.onlyDeltaToggle.checked = false;
+      renderCategoryFilters();
+      renderItems();
+    });
+
+    els.itemsList.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-toggle-item]");
+      if (!btn) return;
+      const id = btn.dataset.toggleItem;
+      if (state.expandedItemIds.has(id)) state.expandedItemIds.delete(id);
+      else state.expandedItemIds.add(id);
+      renderItems();
+    });
+
+    els.loopBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.loopMaterial = btn.dataset.loopMaterial;
+        els.loopBtns.forEach((b) => b.classList.toggle("is-active", b === btn));
+        renderMaterialLoop();
+      });
+    });
+
+    els.checklistList.addEventListener("change", (e) => {
+      const cb = e.target.closest("[data-checklist-id]");
+      if (!cb) return;
+      const id = cb.dataset.checklistId;
+      if (cb.checked) state.checkedChecklistIds.add(id);
+      else state.checkedChecklistIds.delete(id);
+      renderChecklist();
+    });
+
+    els.navTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        switchView(tab.dataset.view);
+      });
+    });
+  }
+
+  async function loadBootstrap() {
+    state.loading = true;
+    state.error = "";
+    renderItems();
+
+    try {
+      const response = await fetch("/api/bootstrap", { headers: { Accept: "application/json" } });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      data = await response.json();
+      state.loading = false;
+      state.error = "";
+
+      populateSelects();
+      renderCategoryFilters();
+      renderRouteAndBins();
+      renderItems();
+      renderMaterialLoop();
+      renderChecklist();
+      renderSymbolsAndDropoff();
+    } catch (err) {
+      state.loading = false;
+      state.error = `Не удалось получить данные с сервера: ${err && err.message ? err.message : "ошибка сети"}`;
+      renderItems();
+    }
+  }
+
+  initStaticIcons();
+  bindEvents();
+  loadBootstrap();
+})();
