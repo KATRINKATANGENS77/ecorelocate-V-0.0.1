@@ -375,12 +375,6 @@ def build_bootstrap_payload(conn: sqlite3.Connection) -> Dict[str, Any]:
     }
 
 
-app = FastAPI(title="EcoRelocate API", version="1.0.0")
-
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
